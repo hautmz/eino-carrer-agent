@@ -1,0 +1,30 @@
+# Binaries
+bin/
+*.exe
+
+# Build output
+build/
+
+# Data directory (SQLite + uploads)
+data/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/
+
+# Node
+node_modules/
+dist/
+
+# Environment
+.env
+.env.local
