@@ -1,26 +1,32 @@
 // Package main 是 Eino Career Agent 服务端程序入口
-// 负责初始化配置、日志、数据库、路由等组件，并启动 HTTP 服务
+// 负责初始化配置、日志、数据库、Agent、服务层、路由等组件，并启动 HTTP 服务
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 
 	"github.com/gin-gonic/gin"
+	"github.com/hautmz/eino-carrer-agent/server/internal/agent"
 	"github.com/hautmz/eino-carrer-agent/server/internal/config"
+	"github.com/hautmz/eino-carrer-agent/server/internal/handler"
 	"github.com/hautmz/eino-carrer-agent/server/internal/pkg/database"
 	"github.com/hautmz/eino-carrer-agent/server/internal/pkg/logger"
 	"github.com/hautmz/eino-carrer-agent/server/internal/pkg/response"
+	"github.com/hautmz/eino-carrer-agent/server/internal/repository"
+	"github.com/hautmz/eino-carrer-agent/server/internal/service"
 )
 
 func main() {
 	fmt.Println("=== Eino Career Agent Starting ===")
 
+	ctx := context.Background()
+
 	// ===== 1. 加载配置 =====
 	configPath := "./configs/config.yaml"
 	if len(os.Args) > 1 {
-		// 支持通过命令行参数指定配置文件路径
 		configPath = os.Args[1]
 	}
 	cfg, err := config.Load(configPath)
@@ -44,26 +50,43 @@ func main() {
 	}
 	logger.S().Infof("数据库初始化完成: %s", cfg.Database.Path)
 
-	// ===== 4. 设置 Gin 运行模式 =====
+	// ===== 4. 初始化 Repository 层 =====
+	userRepo := repository.NewUserRepo(db)
+	convRepo := repository.NewConversationRepo(db)
+	msgRepo := repository.NewMessageRepo(db)
+	reportRepo := repository.NewReportRepo(db)
+	fileRepo := repository.NewUploadedFileRepo(db)
+
+	// ===== 5. 初始化 Agent 服务 =====
+	agentService, err := agent.NewAgentService(ctx, cfg)
+	if err != nil {
+		log.Fatalf("初始化 Agent 服务失败: %v", err)
+	}
+	logger.S().Info("Agent 服务初始化完成")
+
+	// ===== 6. 初始化 Service 层 =====
+	authService := service.NewAuthService(userRepo, cfg)
+	chatService := service.NewChatService(agentService, convRepo, msgRepo, reportRepo, cfg)
+	uploadService := service.NewUploadService(fileRepo, cfg)
+
+	// ===== 7. 初始化 Handler 层 =====
+	authHandler := handler.NewAuthHandler(authService)
+	chatHandler := handler.NewChatHandler(chatService)
+	uploadHandler := handler.NewUploadHandler(uploadService)
+	reportHandler := handler.NewReportHandler(reportRepo)
+	convHandler := handler.NewConversationHandler(convRepo, msgRepo)
+
+	// ===== 8. 设置 Gin 运行模式 =====
 	gin.SetMode(cfg.Server.Mode)
 
-	// ===== 5. 创建 Gin 引擎和路由 =====
-	r := setupRouter(cfg)
+	// ===== 9. 创建路由 =====
+	r := setupRouter(cfg, authService, authHandler, chatHandler, uploadHandler, reportHandler, convHandler)
 
-	// 将 db 实例存入 Gin 的自定义上下文，供 Handler 使用
-	// 后续各 Handler 通过 c.MustGet("db") 获取数据库实例
-	r.Use(func(c *gin.Context) {
-		c.Set("db", db)
-		c.Set("config", cfg)
-		c.Next()
-	})
-
-	// ===== 6. 启动 HTTP 服务 =====
+	// ===== 10. 启动 HTTP 服务 =====
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	fmt.Printf("Eino Career Agent 服务启动，监听地址: %s\n", addr)
 	logger.S().Infof("Eino Career Agent 服务启动，监听地址: %s", addr)
 
-	// 直接启动 HTTP 服务（阻塞直到服务停止）
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("服务启动失败: %v", err)
 	}
@@ -71,13 +94,21 @@ func main() {
 
 // setupRouter 配置所有 HTTP 路由
 // 包括健康检查、认证、聊天、文件上传、报告、对话管理等路由
-func setupRouter(cfg *config.Config) *gin.Engine {
+func setupRouter(
+	cfg *config.Config,
+	authService *service.AuthService,
+	authHandler *handler.AuthHandler,
+	chatHandler *handler.ChatHandler,
+	uploadHandler *handler.UploadHandler,
+	reportHandler *handler.ReportHandler,
+	convHandler *handler.ConversationHandler,
+) *gin.Engine {
 	r := gin.New()
 
-	// 使用 gin 的 Recovery 中间件（捕获 panic 防止服务崩溃）
+	// Recovery 中间件（捕获 panic 防止服务崩溃）
 	r.Use(gin.Recovery())
 
-	// CORS 中间件（开发环境允许所有来源）
+	// CORS 中间件
 	r.Use(func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
@@ -92,40 +123,40 @@ func setupRouter(cfg *config.Config) *gin.Engine {
 	// ===== 公开路由（无需认证） =====
 	public := r.Group("/api")
 	{
-		// 健康检查接口
 		public.GET("/health", healthCheck)
 
-		// 认证路由（后续 Task 4.1 实现）
-		// auth := public.Group("/auth")
-		// {
-		//     auth.POST("/register", handler.Register)
-		//     auth.POST("/login", handler.Login)
-		// }
+		auth := public.Group("/auth")
+		{
+			auth.POST("/register", authHandler.Register)
+			auth.POST("/login", authHandler.Login)
+		}
 	}
 
 	// ===== 认证路由（需要 JWT Token） =====
-	// authRequired := r.Group("/api")
-	// authRequired.Use(middleware.JWTAuth())
-	// {
-	//     // 聊天 SSE 流式接口
-	//     authRequired.POST("/chat/stream", handler.ChatStream)
-	//     // 文件上传
-	//     authRequired.POST("/upload", handler.Upload)
-	//     authRequired.GET("/upload/:id", handler.GetUpload)
-	//     // 报告
-	//     authRequired.GET("/report/list", handler.ReportList)
-	//     authRequired.GET("/report/:id", handler.ReportDetail)
-	//     // 对话管理
-	//     authRequired.GET("/conversation/list", handler.ConversationList)
-	//     authRequired.GET("/conversation/:id", handler.ConversationDetail)
-	//     authRequired.DELETE("/conversation/:id", handler.DeleteConversation)
-	// }
+	authRequired := r.Group("/api")
+	authRequired.Use(handler.JWTAuthMiddleware(authService.GetJWTManager()))
+	{
+		// 聊天 SSE 流式接口
+		authRequired.POST("/chat/stream", chatHandler.ChatStream)
+
+		// 文件上传
+		authRequired.POST("/upload", uploadHandler.Upload)
+		authRequired.GET("/upload/:id", uploadHandler.GetUpload)
+
+		// 报告
+		authRequired.GET("/report/list", reportHandler.ReportList)
+		authRequired.GET("/report/:id", reportHandler.ReportDetail)
+
+		// 对话管理
+		authRequired.GET("/conversation/list", convHandler.ConversationList)
+		authRequired.GET("/conversation/:id", convHandler.ConversationDetail)
+		authRequired.DELETE("/conversation/:id", convHandler.DeleteConversation)
+	}
 
 	return r
 }
 
 // healthCheck 健康检查处理函数
-// 返回服务运行状态，可用于负载均衡健康检测
 func healthCheck(c *gin.Context) {
 	response.OK(c, gin.H{
 		"status":  "running",

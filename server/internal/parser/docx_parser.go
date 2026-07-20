@@ -64,7 +64,6 @@ func extractTextFromXML(data []byte) (string, error) {
 	decoder := xml.NewDecoder(strings.NewReader(string(data)))
 	var texts []string
 	var currentParagraph []string
-	inParagraph := false
 	inText := false
 
 	for {
@@ -79,12 +78,9 @@ func extractTextFromXML(data []byte) (string, error) {
 
 		switch t := token.(type) {
 		case xml.StartElement:
-			// 检测段落开始 <w:p>
 			if t.Name.Local == "p" && strings.Contains(t.Name.Space, "wordprocessingml") {
-				inParagraph = true
 				currentParagraph = nil
 			}
-			// 检测文本开始 <w:t>
 			if t.Name.Local == "t" && strings.Contains(t.Name.Space, "wordprocessingml") {
 				inText = true
 			}
@@ -98,14 +94,11 @@ func extractTextFromXML(data []byte) (string, error) {
 			}
 
 		case xml.EndElement:
-			// 段落结束
 			if t.Name.Local == "p" && strings.Contains(t.Name.Space, "wordprocessingml") {
 				if len(currentParagraph) > 0 {
 					texts = append(texts, strings.Join(currentParagraph, ""))
 				}
-				inParagraph = false
 			}
-			// 文本结束
 			if t.Name.Local == "t" && strings.Contains(t.Name.Space, "wordprocessingml") {
 				inText = false
 			}

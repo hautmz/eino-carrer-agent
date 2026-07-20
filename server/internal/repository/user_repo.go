@@ -9,6 +9,20 @@ import (
 	"github.com/hautmz/eino-carrer-agent/server/internal/domain"
 )
 
+// UserForCreate 用户创建辅助结构体，方便 Service 层构建用户对象
+type UserForCreate struct {
+	Username     string
+	PasswordHash string
+}
+
+// ToDomain 将 UserForCreate 转换为 domain.User
+func (u *UserForCreate) ToDomain() *domain.User {
+	return &domain.User{
+		Username:     u.Username,
+		PasswordHash: u.PasswordHash,
+	}
+}
+
 // UserRepo 用户数据访问接口
 type UserRepo interface {
 	// Create 创建新用户

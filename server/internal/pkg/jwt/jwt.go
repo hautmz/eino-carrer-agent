@@ -62,6 +62,11 @@ func (m *JWTManager) GenerateToken(userID int64, username string) (string, error
 	return tokenString, nil
 }
 
+// Expiration 返回 Token 过期时间时长
+func (m *JWTManager) Expiration() time.Duration {
+	return m.expiration
+}
+
 // ParseToken 解析并验证 JWT Token
 func (m *JWTManager) ParseToken(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
