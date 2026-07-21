@@ -59,6 +59,7 @@ func main() {
 	reportRepo := repository.NewReportRepo(db)
 	fileRepo := repository.NewUploadedFileRepo(db)
 
+	fmt.Println(cfg)
 	// ===== 5. 初始化 Agent 服务 =====
 	agentService, err := agent.NewAgentService(ctx, cfg)
 	if err != nil {

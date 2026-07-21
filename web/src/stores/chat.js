@@ -42,10 +42,11 @@ export const useChatStore = defineStore('chat', () => {
     messages.value.push({ role, content, ...extra, id: Date.now() + Math.random() })
   }
 
-  function updateLastAssistantMessage(chunk) {
-    const last = messages.value[messages.value - 1]
-    if (last && last.role === 'assistant') {
-      last.content += chunk
+  function appendToLastMessage(chunk) {
+    const idx = messages.value.length - 1
+    if (idx >= 0 && messages.value[idx].role === 'assistant') {
+      const msg = { ...messages.value[idx], content: messages.value[idx].content + chunk }
+      messages.value.splice(idx, 1, msg)
     }
   }
 
@@ -66,10 +67,7 @@ export const useChatStore = defineStore('chat', () => {
     return new Promise((resolve) => {
       streamChat(params, {
         onMessage: (chunk) => {
-          const last = messages.value[messages.value - 1]
-          if (last && last.role === 'assistant') {
-            last.content += chunk
-          }
+          appendToLastMessage(chunk)
         },
         onToolCall: (data) => {
           addMessage('tool', typeof data === 'string' ? data : JSON.stringify(data))
@@ -82,9 +80,9 @@ export const useChatStore = defineStore('chat', () => {
           addMessage('report', typeof data === 'string' ? data : JSON.stringify(data))
         },
         onError: (err) => {
-          const last = messages.value[messages.value - 1]
-          if (last && last.role === 'assistant' && !last.content) {
-            last.content = `错误: ${err}`
+          const idx = messages.value.length - 1
+          if (idx >= 0 && messages.value[idx].role === 'assistant' && !messages.value[idx].content) {
+            messages.value.splice(idx, 1, { ...messages.value[idx], content: `错误: ${err}` })
           }
           isStreaming.value = false
           resolve()

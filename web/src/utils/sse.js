@@ -13,7 +13,9 @@ export function chatSSE(url, body, callbacks = {}) {
   })
     .then((response) => {
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
+        const errMsg = `HTTP ${response.status}`
+        if (callbacks.onError) callbacks.onError(errMsg)
+        return
       }
 
       const reader = response.body.getReader()
@@ -30,55 +32,53 @@ export function chatSSE(url, body, callbacks = {}) {
             }
 
             buffer += decoder.decode(value, { stream: true })
-            const lines = buffer.split('\n')
-            buffer = lines.pop()
+            const parts = buffer.split('\n\n')
+            buffer = parts.pop()
 
-            let currentEvent = ''
-            for (const line of lines) {
-              if (line.startsWith('event: ')) {
-                currentEvent = line.slice(7).trim()
-              } else if (line.startsWith('data: ')) {
-                const data = line.slice(6)
-                if (currentEvent === 'heartbeat') continue
-                if (currentEvent === 'done') {
-                  if (callbacks.onDone) callbacks.onDone()
-                  return
+            for (const part of parts) {
+              if (!part.trim()) continue
+
+              let currentEvent = ''
+              let currentData = ''
+
+              const lines = part.split('\n')
+              for (const line of lines) {
+                if (line.startsWith('event:')) {
+                  currentEvent = line.slice(6).trim()
+                } else if (line.startsWith('data:')) {
+                  currentData = line.slice(5).trim()
                 }
-                if (callbacks.onEvent) {
-                  callbacks.onEvent(currentEvent, data)
+              }
+
+              if (currentEvent === 'heartbeat') continue
+              if (currentEvent === 'done') {
+                if (callbacks.onDone) callbacks.onDone()
+                return
+              }
+
+              if (callbacks.onEvent) {
+                callbacks.onEvent(currentEvent, currentData)
+              }
+
+              if (currentEvent === 'message' && callbacks.onMessage) {
+                try {
+                  const parsed = JSON.parse(currentData)
+                  callbacks.onMessage(parsed.content || '')
+                } catch {
+                  callbacks.onMessage(currentData)
                 }
-                if (currentEvent === 'message' && callbacks.onMessage) {
-                  try {
-                    const parsed = JSON.parse(data)
-                    callbacks.onMessage(parsed.content || '')
-                  } catch {
-                    callbacks.onMessage(data)
-                  }
-                }
-                if (currentEvent === 'tool_call' && callbacks.onToolCall) {
-                  try {
-                    callbacks.onToolCall(JSON.parse(data))
-                  } catch {
-                    callbacks.onToolCall(data)
-                  }
-                }
-                if (currentEvent === 'report_progress' && callbacks.onReportProgress) {
-                  try {
-                    callbacks.onReportProgress(JSON.parse(data))
-                  } catch {
-                    callbacks.onReportProgress(data)
-                  }
-                }
-                if (currentEvent === 'report_result' && callbacks.onReportResult) {
-                  try {
-                    callbacks.onReportResult(JSON.parse(data))
-                  } catch {
-                    callbacks.onReportResult(data)
-                  }
-                }
-                if (currentEvent === 'error' && callbacks.onError) {
-                  callbacks.onError(data)
-                }
+              }
+              if (currentEvent === 'tool_call' && callbacks.onToolCall) {
+                try { callbacks.onToolCall(JSON.parse(currentData)) } catch { callbacks.onToolCall(currentData) }
+              }
+              if (currentEvent === 'report_progress' && callbacks.onReportProgress) {
+                try { callbacks.onReportProgress(JSON.parse(currentData)) } catch { callbacks.onReportProgress(currentData) }
+              }
+              if (currentEvent === 'report_result' && callbacks.onReportResult) {
+                try { callbacks.onReportResult(JSON.parse(currentData)) } catch { callbacks.onReportResult(currentData) }
+              }
+              if (currentEvent === 'error' && callbacks.onError) {
+                callbacks.onError(currentData)
               }
             }
 
