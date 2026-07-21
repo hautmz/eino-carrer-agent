@@ -6,9 +6,9 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/hautmz/eino-carrer-agent/server/internal/agent"
@@ -149,53 +149,25 @@ func setupRouter(
 	}
 
 	// ===== 托管前端 SPA 静态文件 =====
-	// 前端构建产物放在 web/dist 目录
 	spaDir := filepath.Join("..", "web", "dist")
 	if info, err := os.Stat(spaDir); err == nil && info.IsDir() {
-		r.Use(staticServe(spaDir))
+		// 静态资源文件（/assets/*, *.css, *.js, *.svg 等）
+		r.Static("/assets", filepath.Join(spaDir, "assets"))
+		r.StaticFile("/favicon.svg", filepath.Join(spaDir, "favicon.svg"))
+		r.StaticFile("/icons.svg", filepath.Join(spaDir, "icons.svg"))
+
+		// SPA 回退：所有非 /api 的 GET 请求返回 index.html
+		r.NoRoute(func(c *gin.Context) {
+			if c.Request.Method == "GET" && !strings.HasPrefix(c.Request.URL.Path, "/api/") {
+				c.File(filepath.Join(spaDir, "index.html"))
+				return
+			}
+			response.NotFound(c, "接口不存在")
+		})
 		logger.S().Infof("前端静态文件目录: %s", spaDir)
 	}
 
 	return r
-}
-
-// staticServe 返回一个中间件，托管前端 SPA 静态文件
-// 对于非 /api 路径的 GET 请求，优先匹配静态文件，未匹配则返回 index.html（SPA 回退）
-func staticServe(root string) gin.HandlerFunc {
-	fileServer := http.FileServer(http.Dir(root))
-
-	return func(c *gin.Context) {
-		// 仅处理非 /api 路径的 GET 请求
-		if c.Request.Method != "GET" || len(c.Request.URL.Path) >= 4 && c.Request.URL.Path[:5] == "/api/" {
-			c.Next()
-			return
-		}
-
-		// 尝试匹配静态文件
-		path := c.Request.URL.Path
-		if path == "/" {
-			path = "/index.html"
-		}
-
-		fullPath := filepath.Join(root, filepath.Clean(path))
-		if _, err := os.Stat(fullPath); err == nil {
-			c.Request.URL.Path = path
-			fileServer.ServeHTTP(c.Writer, c.Request)
-			c.Abort()
-			return
-		}
-
-		// SPA 回退：所有未匹配的路径返回 index.html
-		indexFile := filepath.Join(root, "index.html")
-		if _, err := os.Stat(indexFile); err == nil {
-			c.Request.URL.Path = "/index.html"
-			fileServer.ServeHTTP(c.Writer, c.Request)
-			c.Abort()
-			return
-		}
-
-		c.Next()
-	}
 }
 
 // healthCheck 健康检查处理函数
