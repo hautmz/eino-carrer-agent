@@ -60,16 +60,16 @@ func main() {
 	fileRepo := repository.NewUploadedFileRepo(db)
 
 	fmt.Println(cfg)
-	// ===== 5. 初始化 Agent 服务 =====
-	agentService, err := agent.NewAgentService(ctx, cfg)
+	// ===== 5. 初始化 Agent =====
+	careerAgent, err := agent.NewCareerAgent(ctx, cfg, msgRepo, reportRepo, fileRepo)
 	if err != nil {
-		log.Fatalf("初始化 Agent 服务失败: %v", err)
+		log.Fatalf("初始化 Agent 失败: %v", err)
 	}
-	logger.S().Info("Agent 服务初始化完成")
+	logger.S().Info("Agent 初始化完成")
 
 	// ===== 6. 初始化 Service 层 =====
 	authService := service.NewAuthService(userRepo, cfg)
-	chatService := service.NewChatService(agentService, convRepo, msgRepo, reportRepo, cfg)
+	chatService := service.NewChatService(careerAgent, convRepo, msgRepo, cfg)
 	uploadService := service.NewUploadService(fileRepo, cfg)
 
 	// ===== 7. 初始化 Handler 层 =====
