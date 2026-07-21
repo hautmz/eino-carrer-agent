@@ -76,9 +76,6 @@ User Chat Input
 eino-carrer-agent/
 ├── LICENSE                           # MIT License
 ├── docs/                             # 文档
-│   ├── spec.md                       # 完整规格文档
-│   ├── plan.md                       # 6阶段实现计划
-│   └── tasks.md                      # 38个原子任务清单
 ├── server/                           # Go 后端
 │   ├── cmd/server/main.go            # 程序入口（依赖注入+路由+SPA托管）
 │   ├── configs/config.yaml           # 配置文件
